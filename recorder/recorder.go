@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"sync"
 	"time"
 
 	"gopkg.in/dnaeon/go-vcr.v3/cassette"
@@ -175,6 +176,8 @@ type Recorder struct {
 	// hooks is a list of hooks, which are invoked in different
 	// stages of the playback.
 	hooks []*Hook
+
+	persistLock *sync.Mutex
 }
 
 // New creates a new recorder
@@ -199,6 +202,7 @@ func NewWithOptions(opts *Options) (*Recorder, error) {
 		options:      opts,
 		passthroughs: make([]PassthroughFunc, 0),
 		hooks:        make([]*Hook, 0),
+		persistLock:  new(sync.Mutex),
 	}
 
 	cassetteFile := cassette.New(opts.CassetteName).File
@@ -384,6 +388,17 @@ func (rec *Recorder) requestHandler(r *http.Request) (*cassette.Interaction, err
 // interactions if running in one of the recording modes. When
 // running in ModePassthrough no cassette will be saved on disk.
 func (rec *Recorder) Stop() error {
+	return rec.Persist()
+}
+
+func (rec *Recorder) Persist() error {
+	rec.persistLock.Lock()
+	defer rec.persistLock.Unlock()
+
+	return rec.persistUnsafe()
+}
+
+func (rec *Recorder) persistUnsafe() error {
 	cassetteFile := rec.cassette.File
 	_, err := os.Stat(cassetteFile)
 	cassetteExists := !os.IsNotExist(err)
